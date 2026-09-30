@@ -29,6 +29,11 @@ class QQMailer:
             message["In-Reply-To"] = first["message_id"]
             message["References"] = first["message_id"]
         message.set_content(task["body"])
+        for attachment in task.get("attachments", []):
+            maintype, subtype = attachment["content_type"].split("/", 1)
+            message.add_attachment(
+                attachment["content"], maintype=maintype, subtype=subtype, filename=attachment["filename"]
+            )
         smtp = None
         submitting = False
         try:

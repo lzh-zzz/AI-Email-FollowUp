@@ -1,19 +1,20 @@
 import csv
 import io
 from contextlib import asynccontextmanager
+from urllib.parse import quote
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from fastapi import BackgroundTasks, FastAPI, File, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, UploadFile
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
 from app.ai import BailianClient, EmailAgent
 from app.config import ROOT, Settings
 from app.mail import QQMailer
-from app.schemas import LeadInput, Operation, ReplyInput
-from app.service import RuleError, Service
+from app.schemas import DraftInput, LeadInput, Operation, ReplyInput
+from app.service import MAX_ATTACHMENT_SIZE, RuleError, Service
 from app.store import Store
 
 SAMPLES = [
@@ -205,6 +206,45 @@ def create_app(settings=None, agent=None, mailer=None, clock=None, scheduler_ena
         if result["scheduled"]:
             background.add_task(service.process_task, result["task_id"])
         return result
+
+    @app.post("/api/leads/{lead_id}/draft")
+    def save_draft(lead_id: int, data: DraftInput):
+        return service.save_draft(lead_id, data)
+
+    @app.post("/api/leads/{lead_id}/send-draft", status_code=202)
+    def send_draft(lead_id: int, data: DraftInput, background: BackgroundTasks):
+        result = service.send_draft(lead_id, data)
+        if result["scheduled"]:
+            background.add_task(service.process_task, result["task_id"])
+        return result
+
+    @app.post("/api/leads/{lead_id}/attachments", status_code=201)
+    async def upload_attachment(
+        lead_id: int,
+        reply_id: int = Form(gt=0),
+        operation_id: str = Form(min_length=8, max_length=100, pattern=r"^[A-Za-z0-9_-]+$"),
+        file: UploadFile = File(...),
+    ):
+        content = await file.read(MAX_ATTACHMENT_SIZE + 1)
+        return service.upload_attachment(lead_id, reply_id, operation_id, file.filename, content)
+
+    @app.delete("/api/leads/{lead_id}/attachments/{attachment_id}")
+    def delete_attachment(lead_id: int, attachment_id: int):
+        return service.delete_attachment(lead_id, attachment_id)
+
+    @app.get("/api/attachments/{attachment_id}")
+    def download_attachment(attachment_id: int):
+        attachment = store.one("SELECT filename,content FROM attachments WHERE id=?", (attachment_id,))
+        if not attachment:
+            raise RuleError("附件不存在。", 404)
+        return Response(
+            attachment["content"],
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": "attachment; filename*=UTF-8''" + quote(attachment["filename"]),
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     @app.post("/api/replies/{reply_id}/retry", status_code=202)
     def retry_reply(reply_id: int, operation: Operation, background: BackgroundTasks):

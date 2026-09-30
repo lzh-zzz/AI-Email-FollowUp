@@ -25,17 +25,17 @@ class Store:
                     lead_id INTEGER PRIMARY KEY REFERENCES leads(id),
                     summary TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '',
                     suggestion TEXT NOT NULL DEFAULT '', draft TEXT NOT NULL DEFAULT '',
-                    latest_reply_id INTEGER
+                    latest_reply_id INTEGER, draft_subject TEXT NOT NULL DEFAULT ''
                 );
                 CREATE TABLE IF NOT EXISTS email_tasks (
                     id INTEGER PRIMARY KEY, lead_id INTEGER NOT NULL REFERENCES leads(id),
-                    kind TEXT NOT NULL CHECK(kind IN ('first','followup')),
+                    kind TEXT NOT NULL CHECK(kind IN ('first','followup','reply')),
                     status TEXT NOT NULL DEFAULT 'pending', subject TEXT NOT NULL DEFAULT '',
                     body TEXT NOT NULL DEFAULT '', due_at REAL NOT NULL,
                     sent_at REAL, attempts INTEGER NOT NULL DEFAULT 0,
                     error TEXT NOT NULL DEFAULT '', error_phase TEXT NOT NULL DEFAULT '',
                     message_id TEXT UNIQUE NOT NULL, usage TEXT NOT NULL DEFAULT '{}',
-                    UNIQUE(lead_id,kind)
+                    reply_id INTEGER UNIQUE REFERENCES messages(id)
                 );
                 CREATE TABLE IF NOT EXISTS messages (
                     id INTEGER PRIMARY KEY, lead_id INTEGER NOT NULL REFERENCES leads(id),
@@ -48,7 +48,45 @@ class Store:
                     operation_id TEXT PRIMARY KEY, lead_id INTEGER NOT NULL REFERENCES leads(id),
                     kind TEXT NOT NULL, fingerprint TEXT NOT NULL, result_id INTEGER
                 );
+                CREATE TABLE IF NOT EXISTS attachments (
+                    id INTEGER PRIMARY KEY, lead_id INTEGER NOT NULL REFERENCES leads(id),
+                    reply_id INTEGER NOT NULL REFERENCES messages(id),
+                    task_id INTEGER REFERENCES email_tasks(id),
+                    filename TEXT NOT NULL, content_type TEXT NOT NULL,
+                    size INTEGER NOT NULL, digest TEXT NOT NULL, content BLOB NOT NULL,
+                    created_at REAL NOT NULL, UNIQUE(reply_id,filename,digest)
+                );
             """)
+            self._migrate(db)
+
+    @staticmethod
+    def _migrate(db):
+        if "reply_id" not in {row["name"] for row in db.execute("PRAGMA table_info(email_tasks)")}:
+            # Rebuild without renaming the old table, keeping existing foreign-key targets intact.
+            db.execute("PRAGMA foreign_keys=OFF")
+            db.execute("BEGIN IMMEDIATE")
+            db.execute("""CREATE TABLE email_tasks_upgrade (
+                id INTEGER PRIMARY KEY, lead_id INTEGER NOT NULL REFERENCES leads(id),
+                kind TEXT NOT NULL CHECK(kind IN ('first','followup','reply')),
+                status TEXT NOT NULL DEFAULT 'pending', subject TEXT NOT NULL DEFAULT '',
+                body TEXT NOT NULL DEFAULT '', due_at REAL NOT NULL, sent_at REAL,
+                attempts INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '',
+                error_phase TEXT NOT NULL DEFAULT '', message_id TEXT UNIQUE NOT NULL,
+                usage TEXT NOT NULL DEFAULT '{}', reply_id INTEGER UNIQUE REFERENCES messages(id)
+            )""")
+            columns = "id,lead_id,kind,status,subject,body,due_at,sent_at,attempts,error,error_phase,message_id,usage"
+            db.execute(f"INSERT INTO email_tasks_upgrade({columns}) SELECT {columns} FROM email_tasks")
+            db.execute("DROP TABLE email_tasks")
+            db.execute("ALTER TABLE email_tasks_upgrade RENAME TO email_tasks")
+            if list(db.execute("PRAGMA foreign_key_check")):
+                raise RuntimeError("数据库迁移失败：关联记录不完整，原数据未提交变更。")
+            db.commit()
+            db.execute("PRAGMA foreign_keys=ON")
+        db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS one_initial_task ON email_tasks(lead_id,kind) WHERE kind IN ('first','followup')"
+        )
+        if "draft_subject" not in {row["name"] for row in db.execute("PRAGMA table_info(conversations)")}:
+            db.execute("ALTER TABLE conversations ADD COLUMN draft_subject TEXT NOT NULL DEFAULT ''")
 
     @contextmanager
     def connect(self, transaction=False):
@@ -84,6 +122,17 @@ class Store:
         lead["conversation"] = self.one("SELECT * FROM conversations WHERE lead_id=?", (lead_id,))
         lead["tasks"] = self.all("SELECT * FROM email_tasks WHERE lead_id=? ORDER BY id", (lead_id,))
         lead["messages"] = self.all("SELECT * FROM messages WHERE lead_id=? ORDER BY id", (lead_id,))
+        lead["attachments"] = self.all(
+            "SELECT id,reply_id,task_id,filename,content_type,size,created_at FROM attachments WHERE lead_id=? ORDER BY id",
+            (lead_id,),
+        )
+        if not lead["conversation"]["draft_subject"] and lead["tasks"]:
+            subject = next(
+                (task["subject"] for task in reversed(lead["tasks"]) if task["subject"]), "PackPilot"
+            )
+            lead["conversation"]["draft_subject"] = (
+                subject if subject.lower().startswith("re:") else "Re: " + subject[:156]
+            )
         for task in lead["tasks"]:
             task["usage"] = json.loads(task["usage"])
         for message in lead["messages"]:

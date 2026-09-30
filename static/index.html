@@ -39,13 +39,24 @@
         <section class="section"><div class="section-heading"><h3>邮件记录</h3><span class="muted small">“已发送”表示 SMTP 已接受，实际收信请查看收件邮箱</span></div><div id="email-tasks"></div></section>
         <div class="reply-grid">
           <section class="section"><div class="section-heading"><h3>模拟客户回复</h3><span class="badge neutral">手动录入</span></div>
-            <p class="muted small">保存回复后立即取消未发送跟进，再由 AI 分析意向。回复草稿仅展示。</p>
+            <p class="muted small">在这里录入每次客户回复，AI 会分析并生成新草稿。审核后可发送；首轮未发送跟进会取消。</p>
             <form id="reply-form"><label for="reply-text" class="sr-only">客户回复内容</label><textarea id="reply-text" maxlength="5000" rows="5" placeholder="例如：Thanks for reaching out. Could you share sample options and pricing?" required></textarea>
               <div class="reply-shortcuts"><button type="button" data-reply="high">感兴趣</button><button type="button" data-reply="medium">需要资料</button><button type="button" data-reply="low">暂不需要</button><button type="button" data-reply="refuse">明确拒绝</button><button type="button" data-reply="unsubscribe">退订</button></div>
               <button id="save-reply" class="primary" type="submit">保存回复并分析</button><span id="reply-hint" class="muted small"></span>
             </form>
           </section>
-          <section class="section"><div class="section-heading"><h3>意向与下一步</h3><span id="intent-badge" class="badge neutral">待判断</span></div><div id="reply-analysis"></div></section>
+          <section class="section"><div class="section-heading"><h3>意向与下一步</h3><span id="intent-badge" class="badge neutral">待判断</span></div><div id="reply-analysis"></div>
+            <form id="draft-form" class="draft-editor" hidden>
+              <h4>英文回复草稿</h4>
+              <label for="draft-subject">邮件主题</label><input id="draft-subject" required maxlength="160">
+              <label for="draft-body">正文 · 可编辑</label><textarea id="draft-body" required maxlength="12000" rows="12"></textarea>
+              <label for="draft-files">上传资料附件</label><input id="draft-files" type="file" multiple>
+              <p class="muted small">单个文件最多 5MB，每封最多 5 个，总计 10MB。文件随邮件发送，请核对正文与实际附件。</p>
+              <ul id="draft-attachments" class="attachment-list"></ul>
+              <div class="draft-actions"><button id="save-draft" type="button">保存草稿</button><button id="send-draft" class="primary" type="submit">发送回复邮件</button></div>
+              <p id="draft-status" class="muted small" role="status"></p>
+            </form>
+          </section>
         </div>
         <section class="section"><h3>会话时间线</h3><div id="conversation-timeline"></div></section>
       </div>

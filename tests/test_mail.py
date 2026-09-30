@@ -83,3 +83,21 @@ def test_mail_boundary_sends_to_any_recipient(monkeypatch, address):
     mailer(monkeypatch, smtp).send({"email": address}, TASK)
     assert len(smtp.messages) == 1
     assert smtp.messages[0]["To"] == address
+
+
+def test_actual_mime_message_contains_uploaded_files_and_reply_headers(monkeypatch):
+    smtp = SMTPStub()
+    task = {
+        **TASK,
+        "attachments": [
+            {"filename": "资料.pdf", "content_type": "application/pdf", "content": b"exact uploaded bytes"}
+        ],
+    }
+    mailer(monkeypatch, smtp).send(LEAD, task, {"message_id": "<first@packpilot.demo>"})
+    message = smtp.messages[0]
+    attachments = list(message.iter_attachments())
+    assert len(attachments) == 1
+    assert attachments[0].get_filename() == "资料.pdf"
+    assert attachments[0].get_payload(decode=True) == b"exact uploaded bytes"
+    assert attachments[0].get_content_type() == "application/pdf"
+    assert message["References"] == "<first@packpilot.demo>"

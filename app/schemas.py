@@ -4,6 +4,16 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
+def claims_attachment(body):
+    return bool(
+        re.search(
+            r"\b(?:attached (?:please find|is|are)|please find(?: [\w-]+){0,5} attached|(?:i|we)(?:'ve|’ve| have) attached|(?:catalog|brochure|file|document) (?:is|are) attached|enclosed please find)\b",
+            body,
+            re.I,
+        )
+    )
+
+
 class LeadInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
     name: str = Field(min_length=1, max_length=100)
@@ -41,6 +51,8 @@ class EmailContent(BaseModel):
     @field_validator("body")
     @classmethod
     def grounded_body(cls, v):
+        if claims_attachment(v):
+            raise ValueError("AI 草稿尚无实际附件，不能声称已附目录或资料；由用户上传后编辑正文")
         if re.search(r"\[(?:your|sender|insert|company|date|time|link)[^\]]*\]", v, re.I):
             raise ValueError("邮件不得含姓名、公司或签名占位符；使用 PackPilot Team 签名")
         if re.search(
@@ -108,3 +120,15 @@ class ReplyInput(Operation):
         if not v.strip():
             raise ValueError("回复内容不能为空")
         return v.strip()
+
+
+class DraftInput(Operation):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    reply_id: int = Field(gt=0)
+    subject: str = Field(min_length=1, max_length=160)
+    body: str = Field(min_length=1, max_length=12000)
+
+    @field_validator("subject")
+    @classmethod
+    def validate_subject(cls, v):
+        return EmailContent.no_header_injection(v)

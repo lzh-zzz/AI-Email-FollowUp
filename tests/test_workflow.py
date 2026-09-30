@@ -73,6 +73,7 @@ class FakeModel:
 class FakeMailer:
     def __init__(self):
         self.sent = []
+        self.deliveries = []
         self.failure = None
         self.lock = threading.Lock()
 
@@ -81,6 +82,7 @@ class FakeMailer:
             raise self.failure
         with self.lock:
             self.sent.append(task["message_id"])
+            self.deliveries.append(task)
 
 
 @pytest.fixture
@@ -464,3 +466,38 @@ def test_model_invalid_output_is_bounded_and_key_error_does_not_retry():
         model.generate("first", {})
     model.close()
     assert len(calls) == 1 and "secret" not in str(exc.value)
+
+
+def test_model_repairs_reply_claiming_nonexistent_attachment():
+    calls = []
+
+    def handle(request):
+        calls.append(json.loads(request.content))
+        body = (
+            "Attached please find our catalog."
+            if len(calls) == 1
+            else "Which materials would you like to review? PackPilot Team"
+        )
+        return model_response(
+            json.dumps(
+                dict(
+                    intent="中",
+                    stop=False,
+                    stop_reason="",
+                    reason="索取资料",
+                    summary="内部评估",
+                    suggestion="确认需求",
+                    draft=body,
+                )
+            )
+        )
+
+    model = BailianClient(
+        Settings(api_key="secret", base_url="https://model.example.com"), httpx.MockTransport(handle)
+    )
+    try:
+        output, usage = model.generate("reply", {})
+        assert output["draft"].startswith("Which materials")
+        assert usage["calls"] == 2
+    finally:
+        model.close()
