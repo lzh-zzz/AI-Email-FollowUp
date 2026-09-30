@@ -20,7 +20,7 @@ function renderDetail() {
   const l=state.detail; if(!l)return; const first=l.tasks.find(t=>t.kind==='first'); const active=l.tasks.some(t=>['pending','processing','sending'].includes(t.status)&&t.kind==='first');
   $('detail-name').textContent=l.name; $('detail-company').textContent=`${l.company} · ${l.title}`; $('detail-status').textContent=labels[l.status]; $('detail-status').className='badge '+cls(l.status);
   $('start-lead').disabled=!!first||l.status!=='new'||!state.config?.ready; $('start-lead').textContent=active?'正在分析与发送…':first?'首封任务已创建':'AI 分析并发送首封';
-  $('stop-lead').disabled=l.status==='stopped'; $('action-description').textContent=l.status==='new'?'仅向测试白名单中的客户邮箱发送。':l.status==='awaiting_reply'?`${state.config.followup_delay} 秒未录入回复，最多自动跟进一次。`:l.status==='followup_complete'?'本轮跟进已结束，不再自动发信。':'未发送的跟进已取消。';
+  $('stop-lead').disabled=l.status==='stopped'; $('action-description').textContent=l.status==='new'?'邮件将发送到该客户的邮箱地址。':l.status==='awaiting_reply'?`${state.config.followup_delay} 秒未录入回复，最多自动跟进一次。`:l.status==='followup_complete'?'本轮跟进已结束，不再自动发信。':'未发送的跟进已取消。';
   $('stop-notice').hidden=l.status!=='stopped'; $('stop-notice').textContent='自动跟进已停止：'+l.stop_reason;
   const facts=[['邮箱',l.email],['行业',l.industry],['国家／地区',l.country],['官网',l.website],['来源',l.source]];
   $('lead-facts').innerHTML=facts.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${k==='官网'?`<a href="${esc(v)}" target="_blank" rel="noopener noreferrer">${esc(v)}</a>`:esc(v)}</dd>`).join(''); $('lead-background').textContent=l.background;
@@ -37,7 +37,7 @@ function showForm(){ $('lead-form').reset(); $('form-error').hidden=true; $('lea
 async function action(button, callback){button.disabled=true;try{await callback();await refresh();}catch(e){toast(e.message,true);}finally{button.disabled=false;if(state.detail)renderDetail();}}
 $('new-lead').onclick=showForm; $('empty-new').onclick=showForm; $('close-dialog').onclick=()=>$('lead-dialog').close(); $('cancel-dialog').onclick=()=>$('lead-dialog').close(); $('search').oninput=renderList;
 $('lead-list').onclick=async(e)=>{const b=e.target.closest('[data-lead]');if(b){try{await selectLead(Number(b.dataset.lead));}catch(err){toast(err.message,true);}}};
-$('sample-select').onchange=()=>{const s=state.samples[Number($('sample-select').value)]; if($('sample-select').value==='')return;Object.entries(s).forEach(([key,value])=>{const field=$('lead-form').elements.namedItem(key);if(field)field.value=value;});$('lead-form').elements.email.value=state.config?.recipients[0]||'';};
+$('sample-select').onchange=()=>{const s=state.samples[Number($('sample-select').value)]; if($('sample-select').value==='')return;Object.entries(s).forEach(([key,value])=>{const field=$('lead-form').elements.namedItem(key);if(field)field.value=value;});};
 $('lead-form').onsubmit=async(e)=>{e.preventDefault();const b=$('submit-lead');b.disabled=true;try{const result=await post('/api/leads',Object.fromEntries(new FormData(e.target)));$('lead-dialog').close();await refresh();await selectLead(result.id);toast('客户已保存，尚未发送邮件。');}catch(err){$('form-error').textContent=err.message;$('form-error').hidden=false;}finally{b.disabled=false;}};
 $('start-lead').onclick=()=>action($('start-lead'),async()=>{await post(`/api/leads/${state.current}/start`,{operation_id:op()});toast('开发任务已创建，正在分析客户并发送首封。');});
 $('stop-lead').onclick=()=>action($('stop-lead'),async()=>{await post(`/api/leads/${state.current}/stop`,{operation_id:op()});toast('已停止自动跟进。已经开始 SMTP 提交的邮件无法撤回。');});

@@ -94,7 +94,7 @@ class Store:
     def recover(self):
         with self.connect(transaction=True) as db:
             db.execute(
-                "UPDATE email_tasks SET status='uncertain', error='上次运行在 SMTP 提交期间中断，请核实测试收件箱；不会自动重发。' WHERE status='sending'"
+                "UPDATE email_tasks SET status='uncertain', error='上次运行在 SMTP 提交期间中断，请核实收件箱；不会自动重发。' WHERE status='sending'"
             )
             db.execute("UPDATE email_tasks SET status='pending' WHERE status='processing'")
             db.execute(

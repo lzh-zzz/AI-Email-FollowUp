@@ -63,15 +63,13 @@ class Service:
         db.execute("INSERT INTO operations VALUES (?,?,?,?,NULL)", (operation_id, lead_id, kind, fingerprint))
         return None
 
-    def _require_sender(self, lead):
+    def _require_sender(self):
         if self.settings.issues():
             raise RuleError("配置尚未就绪，请填写：" + "、".join(self.settings.issues()), 503)
-        if lead["email"].lower() not in self.settings.recipients:
-            raise RuleError("客户邮箱不在测试白名单内。请使用 .env 中 TEST_RECIPIENTS 的邮箱。", 403)
 
     def start(self, lead_id, operation_id):
-        lead = self.lead(lead_id)
-        self._require_sender(lead)
+        self.lead(lead_id)
+        self._require_sender()
         with self.store.connect(transaction=True) as db:
             existing = self._operation(db, operation_id, lead_id, "start")
             if existing:
@@ -99,7 +97,7 @@ class Service:
         if not task:
             raise RuleError("发送任务不存在。", 404)
         lead = self.lead(task["lead_id"])
-        self._require_sender(lead)
+        self._require_sender()
         with self.store.connect(transaction=True) as db:
             existing = self._operation(db, operation_id, lead["id"], "retry_task", str(task_id))
             if existing:
@@ -279,7 +277,7 @@ class Service:
             )
         lead = self.lead(task["lead_id"])
         try:
-            self._require_sender(lead)
+            self._require_sender()
             if not task["body"]:
                 context = {"lead": self._lead_context(lead)}
                 if task["kind"] == "followup":
@@ -331,7 +329,7 @@ class Service:
             message = (
                 str(exc)
                 if isinstance(exc, SendUncertain)
-                else "SMTP 提交结果不确定，禁止重发，请核实测试收件箱。"
+                else "SMTP 提交结果不确定，禁止重发，请核实收件箱。"
             )
             self._task_error(task_id, message, "smtp", uncertain=True)
             return

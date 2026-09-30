@@ -35,7 +35,6 @@ def mailer(monkeypatch, smtp):
         Settings(
             smtp_username="sender@example.com",
             smtp_password="private-password",
-            recipients=("test@example.com",),
         )
     )
 
@@ -78,8 +77,9 @@ def test_smtp_connection_failure_can_be_retried(monkeypatch):
         smtp_mailer.send(LEAD, TASK)
 
 
-def test_mail_boundary_independently_enforces_whitelist(monkeypatch):
+@pytest.mark.parametrize("address", ["customer@example.com", "another@example.org"])
+def test_mail_boundary_sends_to_any_recipient(monkeypatch, address):
     smtp = SMTPStub()
-    with pytest.raises(SendFailed):
-        mailer(monkeypatch, smtp).send({"email": "unrelated@example.com"}, TASK)
-    assert not smtp.messages
+    mailer(monkeypatch, smtp).send({"email": address}, TASK)
+    assert len(smtp.messages) == 1
+    assert smtp.messages[0]["To"] == address

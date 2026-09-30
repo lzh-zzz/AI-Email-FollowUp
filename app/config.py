@@ -20,7 +20,6 @@ class Settings:
     smtp_host: str = "smtp.qq.com"
     smtp_port: int = 465
     smtp_ssl: bool = True
-    recipients: tuple[str, ...] = ()
     followup_delay: int = 60
     host: str = "127.0.0.1"
     port: int = 8000
@@ -43,9 +42,6 @@ class Settings:
             smtp_host=value("SMTP_HOST", "smtp.qq.com"),
             smtp_port=int(value("SMTP_PORT", "465")),
             smtp_ssl=value("SMTP_USE_SSL", "true").lower() == "true",
-            recipients=tuple(
-                dict.fromkeys(x.strip().lower() for x in value("TEST_RECIPIENTS").split(",") if x.strip())
-            ),
             followup_delay=max(1, int(value("FOLLOWUP_DELAY_SECONDS", "60"))),
             host=value("APP_HOST", "127.0.0.1"),
             port=int(value("APP_PORT", "8000")),
@@ -65,18 +61,11 @@ class Settings:
             urlparse(self.base_url).scheme != "https" or not urlparse(self.base_url).netloc
         ):
             missing.append("DASHSCOPE_BASE_URL 必须是 HTTPS 地址")
-        if not self.recipients:
-            missing.append("TEST_RECIPIENTS")
-        for name, addresses in [
-            ("SMTP_USERNAME", [self.smtp_username]),
-            ("TEST_RECIPIENTS", self.recipients),
-        ]:
+        if self.smtp_username:
             try:
-                for address in addresses:
-                    if address:
-                        TypeAdapter(EmailStr).validate_python(address)
+                TypeAdapter(EmailStr).validate_python(self.smtp_username)
             except ValidationError:
-                missing.append(name + " 邮箱格式不正确")
+                missing.append("SMTP_USERNAME 邮箱格式不正确")
         if not 1 <= self.smtp_port <= 65535 or not 1 <= self.port <= 65535:
             missing.append("端口必须在 1–65535 范围内")
         return missing
@@ -87,7 +76,6 @@ class Settings:
             "missing": self.issues(),
             "model": self.model,
             "sender": self.smtp_username,
-            "recipients": list(self.recipients),
             "followup_delay": self.followup_delay,
             "reply_source": "manual_simulation",
             "product": "PackPilot · 定制环保包装服务（虚构演示）",

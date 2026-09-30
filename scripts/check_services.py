@@ -18,7 +18,7 @@ def main():
     if settings.issues():
         print(json.dumps({"configuration_ready": False, "missing": settings.issues()}, ensure_ascii=False))
         return 1
-    report = {"configuration_ready": True, "recipient_count": len(settings.recipients)}
+    report = {"configuration_ready": True}
     model = BailianClient(settings)
     try:
         output, usage = model.generate("first", {"lead": SAMPLES[0]})

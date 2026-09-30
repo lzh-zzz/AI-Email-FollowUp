@@ -91,7 +91,6 @@ def env(tmp_path):
         model="test-model",
         smtp_username="sender@example.com",
         smtp_password="test-password",
-        recipients=("test@example.com",),
         db_path=tmp_path / "demo.db",
     )
     model, mailer, now = FakeModel(), FakeMailer(), [1_800_000_000.0]
@@ -266,10 +265,8 @@ def test_uncertain_smtp_is_never_retried(env):
     assert not mailer.sent
 
 
-def test_whitelist_missing_config_and_validation(env):
+def test_missing_config_and_validation(env):
     client, app, _, mailer, _, settings = env
-    lead_id = add(client, email="unrelated@example.com")
-    assert start(client, lead_id).status_code == 403
     settings.api_key = ""
     second_id = add(client)
     assert start(client, second_id, "second-start-operation").status_code == 503
@@ -279,6 +276,19 @@ def test_whitelist_missing_config_and_validation(env):
     assert reply(client, second_id).status_code == 409
     assert client.get("/api/leads/9999").status_code == 404
     assert app.state.store.one("SELECT COUNT(*) AS n FROM email_tasks")["n"] == 0
+
+
+@pytest.mark.parametrize("address", ["customer@example.com", "another@example.org"])
+def test_any_valid_recipient_can_receive_first_and_followup(env, address):
+    client, app, _, mailer, now, _ = env
+    assert client.get("/api/config").json()["ready"] is True
+    lead_id = add(client, email=address)
+    assert start(client, lead_id).status_code == 202
+    assert detail(client, lead_id)["tasks"][0]["status"] == "sent"
+    now[0] += 61
+    app.state.service.process_due()
+    assert detail(client, lead_id)["status"] == "followup_complete"
+    assert len(mailer.sent) == 2
 
 
 def test_csv_partial_import_bom_duplicates_and_missing_fields(env):

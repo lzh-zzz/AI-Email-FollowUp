@@ -19,8 +19,6 @@ class QQMailer:
         self.settings = settings
 
     def send(self, lead, task, first=None):
-        if lead["email"].lower() not in self.settings.recipients:
-            raise SendFailed("客户邮箱不在 TEST_RECIPIENTS 测试白名单内。")
         message = EmailMessage()
         message["From"] = self.settings.smtp_username
         message["To"] = lead["email"]
@@ -48,7 +46,7 @@ class QQMailer:
             submitting = True
             refused = smtp.send_message(message)
             if refused:
-                raise SendFailed("SMTP 明确拒收测试地址，请检查该地址是否有效。")
+                raise SendFailed("SMTP 明确拒收收件地址，请检查该地址是否有效。")
         except SendFailed:
             raise
         except smtplib.SMTPAuthenticationError:
@@ -58,7 +56,7 @@ class QQMailer:
         except (OSError, smtplib.SMTPException, ValueError):
             if submitting:
                 raise SendUncertain(
-                    "SMTP 提交结果不确定，请检查测试收件箱。系统已暂停该会话，不会自动重发。"
+                    "SMTP 提交结果不确定，请检查收件箱。系统已暂停该会话，不会自动重发。"
                 ) from None
             raise SendFailed("连接 QQ SMTP 失败，请检查网络、服务器、端口及 SSL 设置。") from None
         finally:
