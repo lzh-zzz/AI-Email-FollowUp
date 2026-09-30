@@ -12,3 +12,14 @@
 - https://help.aliyun.com/zh/model-studio/qwen-structured-output
 - https://apscheduler.readthedocs.io/en/3.x/userguide.html
 - https://fastapi.tiangolo.com/advanced/events/
+# 官网读取追加
+
+采用现有 HTTP/AI 边界和 Python 标准库 HTMLParser，无新增运行服务。读取公开 HTML 首页和最多一个同站 About 链接，有限正文进入单次背景提取，再用摘要与引用生成邮件；不执行脚本或抓取整站。参考 Python 官方文档：https://docs.python.org/3/library/http.client.html 和 https://docs.python.org/3/library/html.parser.html。
+
+网页网络连接固定到预先验证的公网 IP，HTTPS 仍验证官网域名证书；每次重定向重新校验目标。读取状态与公司背景独立保存，不覆盖人工背景或历史已发邮件。
+
+真实读取 https://www.python.org/ 和 /about/ 成功，qwen3.7-flash 一次提取返回中文背景及三条原文依据，输入 2058 / 输出 372 Token，不发邮件。About 服务器即使请求 identity 仍返回 gzip，已支持有大小上限的 gzip/deflate 解压并验证压缩炸弹拒绝。
+
+隔离页面已验证空人工背景可保存、首封按钮禁用、点击官网读取显示处理中且不发邮件；等待真实 AI 背景提取结果继续检查来源展示。
+
+隔离页面真实百炼结果已显示首页与 About 两个来源、中文摘要、可展开的原文依据（输入 2058 / 输出 381 Token），首封按钮在完成后启用，邮件记录仍为空。原文依据与手动背景的 details 在读取状态不变时不会被轮询重绘收起。

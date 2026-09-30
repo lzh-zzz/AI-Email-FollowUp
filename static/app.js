@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const state = {config: null, leads: [], current: null, detail: null, samples: [], busy: false, initialized: false, editor:null, draftBusy:false, attachmentBusy:false};
+const state = {config: null, leads: [], current: null, detail: null, samples: [], busy: false, initialized: false, editor:null, draftBusy:false, attachmentBusy:false, bgEditor:null};
 const labels = {new:'待开发',awaiting_reply:'等待回复',awaiting_customer:'等待下一次回复',followup_complete:'跟进结束',replied:'已回复',stopped:'已停止',pending:'待处理',processing:'AI 生成中',sending:'提交 SMTP',sent:'已发送',failed:'失败',cancelled:'已取消',uncertain:'结果待核实'};
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const op = () => crypto.randomUUID();
@@ -19,11 +19,12 @@ function usageText(u) {if(!u?.calls)return ''; return u.reported?`Token：输入
 function renderDetail() {
   const l=state.detail; if(!l)return; const first=l.tasks.find(t=>t.kind==='first'); const active=l.tasks.some(t=>['pending','processing','sending'].includes(t.status)&&t.kind==='first');
   $('detail-name').textContent=l.name; $('detail-company').textContent=`${l.company} · ${l.title}`; $('detail-status').textContent=labels[l.status]; $('detail-status').className='badge '+cls(l.status);
-  $('start-lead').disabled=!!first||l.status!=='new'||!state.config?.ready; $('start-lead').textContent=active?'正在分析与发送…':first?'首封任务已创建':'AI 分析并发送首封';
-  $('stop-lead').disabled=l.status==='stopped'; $('stop-lead').textContent=l.messages.some(m=>m.direction==='inbound')?'结束会话':'停止自动跟进'; $('action-description').textContent=l.status==='new'?'邮件将发送到该客户的邮箱地址。':l.status==='awaiting_reply'?`${state.config.followup_delay} 秒未录入回复，最多自动跟进一次。`:l.status==='awaiting_customer'?'回复邮件已发送，请在模拟回复模块录入下一次客户回复。':l.status==='followup_complete'?'本轮自动跟进已结束，可以继续录入客户回复。':'可审核草稿并发送回复，或结束会话。';
+  const research=l.website_research; const reading=research&&['pending','reading'].includes(research.status); const hasBackground=!!l.background||(research?.status==='completed'&&!!research.summary);
+  $('start-lead').disabled=!!first||l.status!=='new'||!state.config?.ready||reading||!hasBackground; $('start-lead').textContent=active?'正在分析与发送…':first?'首封任务已创建':'AI 分析并发送首封';
+  $('stop-lead').disabled=l.status==='stopped'; $('stop-lead').textContent=l.messages.some(m=>m.direction==='inbound')?'结束会话':'停止自动跟进'; $('action-description').textContent=l.status==='new'?'邮件将发送到该客户的邮箱地址。':l.status==='awaiting_reply'?`${state.config.followup_delay} 秒未录入回复，最多自动跟进一次。`:l.status==='stopped'?'会话已结束，不再发送邮件。':l.status==='awaiting_customer'?'回复邮件已发送，请在模拟回复模块录入下一次客户回复。':l.status==='followup_complete'?'本轮自动跟进已结束，可以继续录入客户回复。':'可审核草稿并发送回复，或结束会话。';
   $('stop-notice').hidden=l.status!=='stopped'; $('stop-notice').textContent='会话已停止：'+l.stop_reason;
   const facts=[['邮箱',l.email],['行业',l.industry],['国家／地区',l.country],['官网',l.website],['来源',l.source]];
-  $('lead-facts').innerHTML=facts.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${k==='官网'?`<a href="${esc(v)}" target="_blank" rel="noopener noreferrer">${esc(v)}</a>`:esc(v)}</dd>`).join(''); $('lead-background').textContent=l.background;
+  $('lead-facts').innerHTML=facts.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${k==='官网'?`<a href="${esc(v)}" target="_blank" rel="noopener noreferrer">${esc(v)}</a>`:esc(v)}</dd>`).join(''); $('lead-background').textContent=l.background||'尚未填写人工背景，请读取官网或在下方补充。'; renderWebsite(l);
   $('ai-profile').innerHTML=l.profile?`<p class="profile-copy">${esc(l.profile)}</p><p class="subheading">沟通切入点</p><p class="profile-copy">${esc(l.angle)}</p><p class="subheading">资料依据</p><ul class="evidence-list">${l.evidence.map(e=>`<li>${esc(e)}</li>`).join('')}</ul>${l.assumptions.length?`<p class="subheading">推测，尚未核实</p><ul class="evidence-list">${l.assumptions.map(e=>`<li>${esc(e)}</li>`).join('')}</ul>`:''}`:active?'<div class="analyzing">正在理解客户背景并生成首封邮件…</div>':'<p class="empty-note">启动开发后，AI 会根据行业、职位和公司背景生成画像与切入点。</p>';
   $('email-tasks').innerHTML=l.tasks.length?l.tasks.map(t=>`<article class="email-task"><div class="email-head"><strong>${t.kind==='first'?'首封开发邮件':t.kind==='reply'?'回复客户邮件':'自动跟进 · 1 / 1'}</strong>${badge(t.status)}</div>${t.subject?`<p class="email-subject">${esc(t.subject)}</p><pre class="email-body">${esc(t.body)}</pre>`:`<p class="empty-note">${t.status==='cancelled'?'已取消，不会发送。':t.status==='pending'?'到期后才调用 AI 生成跟进。':'AI 正在生成邮件。'}</p>`}${attachmentLinks(l,t.id)}<div class="email-meta"><span>${t.sent_at?'SMTP 接受：'+date(t.sent_at):'计划：'+date(t.due_at)}</span><span>尝试 ${t.attempts} 次</span><span>${usageText(t.usage)}</span>${t.kind==='followup'&&t.status==='pending'?`<span class="countdown" data-due="${t.due_at}"></span>`:''}</div>${t.error?`<div class="notice ${t.status==='uncertain'?'warning':'danger'} task-error">${esc(t.error)}${canRetryTask(t,l)?`<br><button data-retry-task="${t.id}">修正后重试此任务</button>`:''}</div>`:''}</article>`).join(''):'<p class="empty-note">还没有发送任务。</p>';
   const canReply=first?.status==='sent'; const latest=l.messages.filter(m=>m.direction==='inbound').at(-1); const analyzing=latest?.status==='analyzing'; $('save-reply').disabled=!canReply||analyzing; $('reply-text').disabled=!canReply; $('save-reply').textContent=analyzing?'AI 分析中…':'保存回复并分析'; $('reply-hint').textContent=canReply?'':'首封发送成功后可录入回复。';
@@ -33,6 +34,20 @@ function renderDetail() {
   $('conversation-timeline').innerHTML=l.messages.length?l.messages.map(m=>`<article class="timeline-event"><div class="timeline-title"><strong>${m.direction==='outbound'?'已发送邮件':'模拟客户回复'}</strong><span>${date(m.created_at)}</span></div><details><summary>展开内容${m.status==='failed'?' · 分析失败':''}</summary><p>${esc(m.body)}</p>${attachmentLinks(l,m.task_id)}</details></article>`).join(''):'<p class="empty-note">成功发送邮件或录入回复后，会在这里保存往来记录。</p>';
   updateCountdown();
 }
+
+function renderWebsite(l){
+  const r=l.website_research; const locked=l.status!=='new'||l.tasks.length>0; const reading=r&&['pending','reading'].includes(r.status);
+  $('read-website').disabled=locked||reading||!state.config?.ai_ready;
+  $('read-website').textContent=reading?'正在读取官网与提取背景…':r?.status==='completed'?'重新读取官网':'读取官网并提取背景';
+  $('website-research').innerHTML=reading?'<div class="analyzing">正在读取公开网页并提取公司业务信息。此操作不会发送邮件。</div>':!r?'<p class="muted small">首封任务创建后，背景和官网读取结果不再修改。</p>':`<div class="website-result">${r.status==='completed'?`<p class="subheading">官网提取背景</p><p class="analysis-copy">${esc(r.summary)}</p><p class="subheading">原文依据</p>${r.facts.map(f=>`<details><summary>${esc(f.fact)}</summary><blockquote>${esc(f.quote)}</blockquote><a href="${esc(f.source_url)}" target="_blank" rel="noopener noreferrer">查看来源</a></details>`).join('')}`:`<div class="notice warning">${esc(r.error||'官网读取未完成，请重新读取或手动补充背景。')}</div>`}${r.pages.length?`<p class="subheading">已读取页面</p>${r.pages.map(p=>`<p class="small"><a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">${esc(p.title||p.url)}</a></p>`).join('')}`:''}${r.warnings.map(w=>`<p class="small notice warning">${esc(w)} 已使用可读页面继续分析。</p>`).join('')}<p class="muted small">${usageText(r.usage)}${r.status==='completed'?' · 请核对公司是否匹配，网站自述尚未独立核实。':''}</p></div>`;
+  if(state.bgEditor?.leadId!==l.id)state.bgEditor={leadId:l.id,value:l.background,dirty:false};
+  if(!state.bgEditor.dirty)state.bgEditor.value=l.background;
+  $('background-edit').value=state.bgEditor.value; $('background-edit').disabled=locked; $('save-background').disabled=locked;
+}
+$('read-website').onclick=()=>{const id=state.current;return action($('read-website'),async()=>{await post(`/api/leads/${id}/website`,{operation_id:op()});toast('官网读取任务已创建，不会发送邮件。');});};
+$('background-edit').oninput=()=>{if(state.bgEditor){state.bgEditor.value=$('background-edit').value;state.bgEditor.dirty=true;}};
+$('background-form').onsubmit=e=>{e.preventDefault();const id=state.current;const background=$('background-edit').value;action($('save-background'),async()=>{await post(`/api/leads/${id}/background`,{operation_id:op(),background});if(state.bgEditor?.leadId===id)state.bgEditor.dirty=false;toast('背景已保存，可以用于客户分析。');});};
+
 function attachmentLinks(l,taskId){const attachments=l.attachments.filter(a=>taskId&&a.task_id===taskId);return attachments.length?`<p class="sent-attachments small">附件：${attachments.map(a=>`<a href="/api/attachments/${a.id}" download>${esc(a.filename)}</a>`).join(' · ')}</p>`:'';}
 function canRetryTask(t,l){return t.status==='failed'&&(t.kind==='reply'?l.status==='replied'&&t.reply_id===l.conversation.latest_reply_id:['new','awaiting_reply'].includes(l.status));}
 function renderDraft(l){

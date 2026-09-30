@@ -8,6 +8,7 @@ import uuid
 from app.ai import ModelError
 from app.mail import SendFailed, SendUncertain
 from app.schemas import DraftInput, LeadInput, claims_attachment
+from app.website import WebsiteError, WebsiteReader
 
 MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024
 MAX_ATTACHMENT_TOTAL = 10 * 1024 * 1024
@@ -21,12 +22,13 @@ class RuleError(Exception):
 
 
 class Service:
-    def __init__(self, store, settings, agent, mailer, clock=time.time):
+    def __init__(self, store, settings, agent, mailer, clock=time.time, website_reader=None):
         self.store = store
         self.settings = settings
         self.agent = agent
         self.mailer = mailer
         self.clock = clock
+        self.website_reader = website_reader or WebsiteReader()
 
     @staticmethod
     def dumps(value):
@@ -73,9 +75,18 @@ class Service:
             raise RuleError("配置尚未就绪，请填写：" + "、".join(self.settings.issues()), 503)
 
     def start(self, lead_id, operation_id):
-        self.lead(lead_id)
+        lead = self.lead(lead_id)
         self._require_sender()
         with self.store.connect(transaction=True) as db:
+            research = db.execute(
+                "SELECT status,summary FROM website_research WHERE lead_id=?", (lead_id,)
+            ).fetchone()
+            if research and research["status"] in {"pending", "reading"}:
+                raise RuleError("官网正在读取，请等待背景提取完成后再发送首封。", 409)
+            if not lead["background"] and not (
+                research and research["status"] == "completed" and research["summary"]
+            ):
+                raise RuleError("请先读取官网提取背景，或在录入时填写公司背景，再启动开发。", 422)
             existing = self._operation(db, operation_id, lead_id, "start")
             if existing:
                 return {"task_id": existing["result_id"], "scheduled": False}
@@ -96,6 +107,88 @@ class Service:
                 task_id, scheduled = cursor.lastrowid, True
             db.execute("UPDATE operations SET result_id=? WHERE operation_id=?", (task_id, operation_id))
         return {"task_id": task_id, "scheduled": scheduled}
+
+    def start_website(self, lead_id, operation_id):
+        self.lead(lead_id)
+        issues = [issue for issue in self.settings.issues() if issue.startswith("DASHSCOPE")]
+        if issues:
+            raise RuleError("请先配置百炼模型：" + "、".join(issues), 503)
+        with self.store.connect(transaction=True) as db:
+            existing = self._operation(db, operation_id, lead_id, "website")
+            if existing:
+                return {"scheduled": False}
+            if db.execute("SELECT id FROM email_tasks WHERE lead_id=?", (lead_id,)).fetchone():
+                raise RuleError("请在创建首封任务前读取官网；已有邮件使用原背景，历史记录不会改写。", 409)
+            lead = db.execute("SELECT status FROM leads WHERE id=?", (lead_id,)).fetchone()
+            if lead["status"] != "new":
+                raise RuleError("只有待开发客户可读取官网。", 409)
+            current = db.execute("SELECT status FROM website_research WHERE lead_id=?", (lead_id,)).fetchone()
+            if current and current["status"] in {"pending", "reading"}:
+                return {"scheduled": False}
+            db.execute(
+                "INSERT INTO website_research(lead_id,status,operation_id,updated_at) VALUES (?,'pending',?,?) "
+                "ON CONFLICT(lead_id) DO UPDATE SET status='pending',operation_id=excluded.operation_id,pages='[]',warnings='[]',summary='',facts='[]',usage='{}',error='',updated_at=excluded.updated_at",
+                (lead_id, operation_id, self.clock()),
+            )
+        return {"scheduled": True}
+
+    def save_background(self, lead_id, data):
+        self.lead(lead_id)
+        with self.store.connect(transaction=True) as db:
+            existing = self._operation(db, data.operation_id, lead_id, "background", data.background)
+            if not existing:
+                if (
+                    db.execute("SELECT id FROM email_tasks WHERE lead_id=?", (lead_id,)).fetchone()
+                    or db.execute("SELECT status FROM leads WHERE id=?", (lead_id,)).fetchone()[0] != "new"
+                ):
+                    raise RuleError("只能在创建首封任务前修改公司背景。", 409)
+                db.execute(
+                    "UPDATE leads SET background=?,updated_at=? WHERE id=?",
+                    (data.background, self.clock(), lead_id),
+                )
+        return self.lead(lead_id)
+
+    def process_website(self, lead_id):
+        with self.store.connect(transaction=True) as db:
+            claimed = db.execute(
+                "UPDATE website_research SET status='reading' WHERE lead_id=? AND status='pending'",
+                (lead_id,),
+            )
+            if not claimed.rowcount:
+                return
+            operation = db.execute(
+                "SELECT operation_id FROM website_research WHERE lead_id=?", (lead_id,)
+            ).fetchone()[0]
+        lead = self.lead(lead_id)
+        try:
+            result = self.website_reader.read(lead["website"])
+            with self.store.connect(transaction=True) as db:
+                db.execute(
+                    "UPDATE website_research SET pages=?,warnings=? WHERE lead_id=? AND operation_id=?",
+                    (self.dumps(result["pages"]), self.dumps(result["warnings"]), lead_id, operation),
+                )
+            output, usage = self.agent.run("website", {"company": lead["company"], "pages": result["pages"]})
+            with self.store.connect(transaction=True) as db:
+                status = db.execute("SELECT status FROM leads WHERE id=?", (lead_id,)).fetchone()[0]
+                db.execute(
+                    "UPDATE website_research SET status=?,summary=?,facts=?,usage=?,error=?,updated_at=? WHERE lead_id=? AND operation_id=?",
+                    (
+                        "completed" if status == "new" else "cancelled",
+                        output["summary"] if status == "new" else "",
+                        self.dumps(output["facts"]),
+                        self.dumps(usage),
+                        "" if status == "new" else "客户已停止，官网结果不用于发信。",
+                        self.clock(),
+                        lead_id,
+                        operation,
+                    ),
+                )
+        except (WebsiteError, ModelError) as exc:
+            with self.store.connect(transaction=True) as db:
+                db.execute(
+                    "UPDATE website_research SET status='failed',error=?,updated_at=? WHERE lead_id=? AND operation_id=?",
+                    (self.settings.redact(str(exc)), self.clock(), lead_id, operation),
+                )
 
     def retry_task(self, task_id, operation_id):
         task = self.store.one("SELECT * FROM email_tasks WHERE id=?", (task_id,))
@@ -424,7 +517,11 @@ class Service:
             "profile",
             "angle",
         ]
-        return {key: lead[key] for key in keys}
+        context = {key: lead[key] for key in keys}
+        research = lead.get("website_research")
+        if research and research["status"] == "completed":
+            context["website_research"] = {"summary": research["summary"], "facts": research["facts"]}
+        return context
 
     def process_task(self, task_id):
         with self.store.connect(transaction=True) as db:

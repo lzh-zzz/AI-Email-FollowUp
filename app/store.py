@@ -56,6 +56,14 @@ class Store:
                     size INTEGER NOT NULL, digest TEXT NOT NULL, content BLOB NOT NULL,
                     created_at REAL NOT NULL, UNIQUE(reply_id,filename,digest)
                 );
+                CREATE TABLE IF NOT EXISTS website_research (
+                    lead_id INTEGER PRIMARY KEY REFERENCES leads(id),
+                    status TEXT NOT NULL DEFAULT 'pending', operation_id TEXT NOT NULL,
+                    pages TEXT NOT NULL DEFAULT '[]', warnings TEXT NOT NULL DEFAULT '[]',
+                    summary TEXT NOT NULL DEFAULT '', facts TEXT NOT NULL DEFAULT '[]',
+                    usage TEXT NOT NULL DEFAULT '{}', error TEXT NOT NULL DEFAULT '',
+                    updated_at REAL NOT NULL
+                );
             """)
             self._migrate(db)
 
@@ -120,6 +128,10 @@ class Store:
         for field in ["evidence", "assumptions"]:
             lead[field] = json.loads(lead[field])
         lead["conversation"] = self.one("SELECT * FROM conversations WHERE lead_id=?", (lead_id,))
+        lead["website_research"] = self.one("SELECT * FROM website_research WHERE lead_id=?", (lead_id,))
+        if lead["website_research"]:
+            for key in ["pages", "warnings", "facts", "usage"]:
+                lead["website_research"][key] = json.loads(lead["website_research"][key])
         lead["tasks"] = self.all("SELECT * FROM email_tasks WHERE lead_id=? ORDER BY id", (lead_id,))
         lead["messages"] = self.all("SELECT * FROM messages WHERE lead_id=? ORDER BY id", (lead_id,))
         lead["attachments"] = self.all(
@@ -142,6 +154,9 @@ class Store:
 
     def recover(self):
         with self.connect(transaction=True) as db:
+            db.execute(
+                "UPDATE website_research SET status='failed',error='上次官网读取中断，可重新读取；人工背景保留。' WHERE status IN ('pending','reading')"
+            )
             db.execute(
                 "UPDATE email_tasks SET status='uncertain', error='上次运行在 SMTP 提交期间中断，请核实收件箱；不会自动重发。' WHERE status='sending'"
             )

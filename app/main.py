@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from app.ai import BailianClient, EmailAgent
 from app.config import ROOT, Settings
 from app.mail import QQMailer
-from app.schemas import DraftInput, LeadInput, Operation, ReplyInput
+from app.schemas import BackgroundInput, DraftInput, LeadInput, Operation, ReplyInput
 from app.service import MAX_ATTACHMENT_SIZE, RuleError, Service
 from app.store import Store
 
@@ -48,13 +48,17 @@ SAMPLES = [
 ]
 
 
-def create_app(settings=None, agent=None, mailer=None, clock=None, scheduler_enabled=True):
+def create_app(
+    settings=None, agent=None, mailer=None, clock=None, scheduler_enabled=True, website_reader=None
+):
     settings = settings or Settings.load()
     store = Store(settings.db_path)
     model_client = None if agent else BailianClient(settings)
     agent = agent or EmailAgent(model_client)
     mailer = mailer or QQMailer(settings)
-    service = Service(store, settings, agent, mailer, **({"clock": clock} if clock else {}))
+    service = Service(
+        store, settings, agent, mailer, website_reader=website_reader, **({"clock": clock} if clock else {})
+    )
     scheduler = BackgroundScheduler(timezone="UTC")
 
     @asynccontextmanager
@@ -97,6 +101,9 @@ def create_app(settings=None, agent=None, mailer=None, clock=None, scheduler_ena
             "n"
         ]
         busy += store.one("SELECT COUNT(*) AS n FROM messages WHERE status='analyzing'")["n"]
+        busy += store.one("SELECT COUNT(*) AS n FROM website_research WHERE status IN ('pending','reading')")[
+            "n"
+        ]
         if busy:
             raise RuleError("任务正在执行，请完成后再重新加载配置。", 409)
         try:
@@ -210,6 +217,17 @@ def create_app(settings=None, agent=None, mailer=None, clock=None, scheduler_ena
     @app.post("/api/leads/{lead_id}/draft")
     def save_draft(lead_id: int, data: DraftInput):
         return service.save_draft(lead_id, data)
+
+    @app.post("/api/leads/{lead_id}/website", status_code=202)
+    def read_website(lead_id: int, operation: Operation, background: BackgroundTasks):
+        result = service.start_website(lead_id, operation.operation_id)
+        if result["scheduled"]:
+            background.add_task(service.process_website, lead_id)
+        return result
+
+    @app.post("/api/leads/{lead_id}/background")
+    def save_background(lead_id: int, data: BackgroundInput):
+        return service.save_background(lead_id, data)
 
     @app.post("/api/leads/{lead_id}/send-draft", status_code=202)
     def send_draft(lead_id: int, data: DraftInput, background: BackgroundTasks):

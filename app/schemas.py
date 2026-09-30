@@ -23,7 +23,7 @@ class LeadInput(BaseModel):
     email: EmailStr
     industry: str = Field(min_length=1, max_length=100)
     country: str = Field(min_length=1, max_length=100)
-    background: str = Field(min_length=1, max_length=3000)
+    background: str = Field(default="", max_length=3000)
     source: str = Field(default="手动录入", max_length=100)
 
     @field_validator("email")
@@ -91,6 +91,26 @@ class OutreachResult(EmailContent):
         return v
 
 
+class WebsiteFact(BaseModel):
+    fact: str = Field(min_length=5, max_length=300, description="中文业务事实，仅依据网页原文")
+    source_url: str = Field(max_length=2000, description="对应输入pages中的原始url")
+    quote: str = Field(min_length=10, max_length=300, description="逐字引用页面原文，不翻译、不改写")
+
+
+class WebsiteResult(BaseModel):
+    summary: str = Field(
+        min_length=20, max_length=1500, description="中文公司业务背景，80-180字，不推断采购需求"
+    )
+    facts: list[WebsiteFact] = Field(min_length=1, max_length=5)
+
+    @field_validator("summary")
+    @classmethod
+    def chinese_summary(cls, v):
+        if not re.search(r"[\u4e00-\u9fff]", v):
+            raise ValueError("官网业务摘要必须为中文")
+        return v
+
+
 class ReplyResult(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
     intent: Literal["高", "中", "低", "拒绝"] | None
@@ -120,6 +140,11 @@ class ReplyInput(Operation):
         if not v.strip():
             raise ValueError("回复内容不能为空")
         return v.strip()
+
+
+class BackgroundInput(Operation):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    background: str = Field(min_length=1, max_length=3000)
 
 
 class DraftInput(Operation):

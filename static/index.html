@@ -26,14 +26,14 @@
         <p>录入客户背景，查看 AI 的沟通切入点，发送一封个性化开发邮件。</p>
         <ol class="workflow"><li>录入客户</li><li>AI 分析与发信</li><li>未回复自动跟进</li><li>回复判断或停止</li></ol>
         <button id="empty-new" class="primary">录入第一位客户</button>
-        <p class="muted small">官网作为参考链接；回复在工作台中模拟录入。</p>
+        <p class="muted small">可读取真实官网提取公司背景；回复在工作台中模拟录入。</p>
       </div>
       <div id="lead-detail" hidden>
         <div class="detail-heading"><div><p class="muted small">客户会话</p><h2 id="detail-name"></h2><p id="detail-company" class="muted"></p></div><span id="detail-status" class="badge"></span></div>
         <div class="actionbar"><button id="start-lead" class="primary">AI 分析并发送首封</button><button id="stop-lead" class="danger-outline">停止自动跟进</button><span id="action-description" class="muted small"></span></div>
         <div id="stop-notice" class="notice" hidden></div>
         <div class="detail-grid">
-          <section class="section"><h3>客户背景</h3><dl id="lead-facts" class="facts"></dl><p id="lead-background" class="background-copy"></p></section>
+          <section class="section"><h3>客户背景</h3><dl id="lead-facts" class="facts"></dl><p id="lead-background" class="background-copy"></p><button id="read-website" type="button">读取官网并提取背景</button><p class="muted small">首页与一个同站 About 页面，提取后仍需点击发送首封。虚构样例官网无法读取。</p><div id="website-research" aria-live="polite"></div><details class="background-editor"><summary>手动补充或修改公司背景</summary><form id="background-form"><label for="background-edit">人工补充背景</label><textarea id="background-edit" required maxlength="3000" rows="4"></textarea><button id="save-background" type="submit">保存背景</button></form></details></section>
           <section class="section"><h3>AI 画像与切入点</h3><div id="ai-profile"></div></section>
         </div>
         <section class="section"><div class="section-heading"><h3>邮件记录</h3><span class="muted small">“已发送”表示 SMTP 已接受，实际收信请查看收件邮箱</span></div><div id="email-tasks"></div></section>
@@ -74,7 +74,7 @@
       <label>官网<input name="website" type="url" required maxlength="500" placeholder="https://company.example.com"></label>
       <label>国家／地区<input name="country" required maxlength="100"></label>
       <label class="full">客户邮箱（实际收件地址）<input name="email" type="email" required autocomplete="off"><span class="muted small">邮件将发送到此地址，请核对填写。</span></label>
-      <label class="full">公司简介／业务背景<textarea name="background" required maxlength="3000" rows="3" placeholder="公司经营什么业务？客户负责什么？可能关注什么问题？"></textarea></label>
+      <label class="full">公司简介／业务背景（可选）<textarea name="background" maxlength="3000" rows="3" placeholder="可手动填写，或保存后读取真实官网提取背景。发信前至少需有一种背景来源。"></textarea></label>
     </div>
     <div id="form-error" class="notice warning" hidden role="alert"></div><div class="dialog-footer"><button type="button" id="cancel-dialog">取消</button><button id="submit-lead" type="submit" class="primary">保存客户</button></div>
   </form></dialog>

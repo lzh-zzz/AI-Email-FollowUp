@@ -73,6 +73,7 @@ class Settings:
     def public(self):
         return {
             "ready": not self.issues(),
+            "ai_ready": not any(issue.startswith("DASHSCOPE") for issue in self.issues()),
             "missing": self.issues(),
             "model": self.model,
             "sender": self.smtp_username,
