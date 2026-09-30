@@ -29,7 +29,7 @@
       </div>
       <div id="lead-detail" hidden>
         <div class="detail-heading"><div><p class="muted small">客户会话</p><h2 id="detail-name"></h2><p id="detail-company" class="muted"></p></div><span id="detail-status" class="badge"></span></div>
-        <div class="actionbar"><button id="start-lead" class="primary">AI 分析并发送首封</button><button id="stop-lead" class="danger-outline">停止自动跟进</button><span id="action-description" class="muted small"></span></div>
+        <div class="actionbar"><button id="start-lead" class="primary">AI 分析并发送首封</button><button id="complete-lead" class="success-outline" hidden>标记合作完成</button><button id="stop-lead" class="danger-outline">停止联系</button><span id="action-description" class="muted small"></span></div>
         <div id="stop-notice" class="notice" hidden></div>
         <div class="detail-grid">
           <section class="section"><h3>客户背景</h3><dl id="lead-facts" class="facts"></dl><p id="lead-background" class="background-copy"></p><button id="read-website" type="button">读取官网并提取背景</button><p class="muted small">首页与一个同站 About 页面，提取后仍需点击发送首封。虚构样例官网无法读取。</p><div id="website-research" aria-live="polite"></div><details class="background-editor"><summary>手动补充或修改公司背景</summary><form id="background-form"><label for="background-edit">人工补充背景</label><textarea id="background-edit" required maxlength="3000" rows="4"></textarea><button id="save-background" type="submit">保存背景</button></form></details></section>
@@ -62,6 +62,13 @@
     </section>
   </main>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <dialog id="complete-dialog" aria-labelledby="complete-heading"><form id="complete-form">
+    <div class="dialog-heading"><h2 id="complete-heading">标记合作完成？</h2></div>
+    <p id="complete-customer" class="analysis-copy"></p>
+    <p class="notice">确认后会保留会话和邮件记录，取消尚未发送的任务，并停止后续发信和模拟回复录入。已开始 SMTP 提交的邮件无法撤回。</p>
+    <p id="complete-error" class="notice danger" role="alert" hidden></p>
+    <div class="dialog-footer"><button type="button" id="cancel-complete">取消</button><button type="submit" id="confirm-complete" class="success-outline">确认完成</button></div>
+  </form></dialog>
   <dialog id="delete-dialog" aria-labelledby="delete-heading"><form id="delete-form">
     <div class="dialog-heading"><h2 id="delete-heading">删除客户会话？</h2></div>
     <p id="delete-customer" class="analysis-copy"></p>

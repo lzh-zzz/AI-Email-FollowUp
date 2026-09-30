@@ -126,8 +126,8 @@ class Service:
             if existing:
                 return {"task_id": existing["result_id"], "scheduled": False}
             current = db.execute("SELECT status FROM leads WHERE id=?", (lead_id,)).fetchone()
-            if current["status"] == "stopped":
-                raise RuleError("客户已停止，不能重新启动开发。", 409)
+            if current["status"] in {"stopped", "completed"}:
+                raise RuleError("会话已结束，不能重新启动开发。", 409)
             task = db.execute(
                 "SELECT id FROM email_tasks WHERE lead_id=? AND kind='first'", (lead_id,)
             ).fetchone()
@@ -385,6 +385,8 @@ class Service:
             existing = self._operation(db, data.operation_id, lead_id, "send_draft", payload)
             if existing:
                 return {"task_id": existing["result_id"], "scheduled": False}
+            if db.execute("SELECT status FROM leads WHERE id=?", (lead_id,)).fetchone()[0] == "completed":
+                raise RuleError("合作已完成，不能再发送回复邮件。", 409)
             previous = db.execute(
                 "SELECT id,subject,body FROM email_tasks WHERE lead_id=? AND reply_id=?",
                 (lead_id, data.reply_id),
@@ -426,12 +428,41 @@ class Service:
         with self.store.connect(transaction=True) as db:
             existing = self._operation(db, operation_id, lead_id, "stop")
             if not existing:
+                status = db.execute("SELECT status FROM leads WHERE id=?", (lead_id,)).fetchone()[0]
+                if status == "completed":
+                    raise RuleError("合作已完成，无需再停止会话。", 409)
                 db.execute(
-                    "UPDATE leads SET status='stopped',stop_reason='人工停止',updated_at=? WHERE id=?",
+                    "UPDATE leads SET status='stopped',stop_reason=CASE WHEN status='stopped' THEN stop_reason ELSE '人工停止' END,updated_at=? WHERE id=?",
                     (self.clock(), lead_id),
                 )
                 db.execute("UPDATE conversations SET draft='' WHERE lead_id=?", (lead_id,))
                 self._cancel(db, lead_id)
+        return self.lead(lead_id)
+
+    def complete(self, lead_id, operation_id):
+        self.lead(lead_id)
+        with self.store.connect(transaction=True) as db:
+            existing = self._operation(db, operation_id, lead_id, "complete")
+            if not existing:
+                current = db.execute(
+                    "SELECT status,stop_reason FROM leads WHERE id=?", (lead_id,)
+                ).fetchone()
+                status = current["status"]
+                if status == "stopped" and current["stop_reason"] != "人工停止":
+                    raise RuleError("客户已拒绝或退订，不能标记合作完成。", 409)
+                sent = db.execute(
+                    "SELECT id FROM email_tasks WHERE lead_id=? AND kind='first' AND status='sent'",
+                    (lead_id,),
+                ).fetchone()
+                if not sent:
+                    raise RuleError("首封邮件发送成功后，才能标记合作完成。", 409)
+                if status != "completed":
+                    db.execute(
+                        "UPDATE leads SET status='completed',stop_reason='',updated_at=? WHERE id=?",
+                        (self.clock(), lead_id),
+                    )
+                    db.execute("UPDATE conversations SET draft='' WHERE lead_id=?", (lead_id,))
+                    self._cancel(db, lead_id)
         return self.lead(lead_id)
 
     @staticmethod
@@ -447,6 +478,8 @@ class Service:
             existing = self._operation(db, operation_id, lead_id, "reply", text)
             if existing:
                 return {"reply_id": existing["result_id"], "scheduled": False}
+            if db.execute("SELECT status FROM leads WHERE id=?", (lead_id,)).fetchone()[0] == "completed":
+                raise RuleError("合作已完成，不再录入或分析客户回复。", 409)
             first = db.execute(
                 "SELECT id FROM email_tasks WHERE lead_id=? AND kind='first' AND status='sent'", (lead_id,)
             ).fetchone()
@@ -477,6 +510,8 @@ class Service:
             existing = self._operation(db, operation_id, reply["lead_id"], "retry_reply", str(reply_id))
             if existing:
                 return {"reply_id": reply_id, "scheduled": False}
+            if db.execute("SELECT status FROM leads WHERE id=?", (reply["lead_id"],)).fetchone()[0] == "completed":
+                raise RuleError("合作已完成，不再分析客户回复。", 409)
             message = db.execute("SELECT status FROM messages WHERE id=?", (reply_id,)).fetchone()
             latest = db.execute(
                 "SELECT latest_reply_id FROM conversations WHERE lead_id=?", (reply["lead_id"],)
@@ -524,6 +559,9 @@ class Service:
                 "UPDATE messages SET status='completed',analysis=?,usage=?,error='' WHERE id=?",
                 (self.dumps(output), self.dumps(usage), reply_id),
             )
+            current = db.execute("SELECT status,stop_reason FROM leads WHERE id=?", (lead["id"],)).fetchone()
+            if current["status"] == "completed":
+                return
             latest = db.execute(
                 "SELECT latest_reply_id FROM conversations WHERE lead_id=?", (lead["id"],)
             ).fetchone()
@@ -537,7 +575,6 @@ class Service:
                     db.execute("UPDATE conversations SET draft='' WHERE lead_id=?", (lead["id"],))
                     self._cancel(db, lead["id"])
                 return
-            current = db.execute("SELECT status,stop_reason FROM leads WHERE id=?", (lead["id"],)).fetchone()
             stopped = current["status"] == "stopped" or output["stop"]
             reason = current["stop_reason"] if current["status"] == "stopped" else output["stop_reason"]
             db.execute(

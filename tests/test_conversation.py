@@ -86,6 +86,83 @@ def test_multiple_reply_rounds_with_editing_attachments_and_no_automatic_resend(
     assert model.calls == ["first", "reply", "reply"]
 
 
+def test_complete_after_multiple_sent_emails_preserves_history_and_blocks_more_contact(env):
+    client, app, model, mailer, now, settings = env
+    lead_id = prepared(client)
+    assert send(client, lead_id, payload(client, lead_id)).status_code == 202
+    assert reply(client, lead_id, "We would like to proceed", "second-customer-reply").status_code == 202
+    assert send(client, lead_id, payload(client, lead_id, "second-outbound-reply")).status_code == 202
+    assert len(mailer.sent) == 3
+
+    completed = client.post(
+        f"/api/leads/{lead_id}/complete", json={"operation_id": "complete-cooperation"}
+    )
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "completed"
+    assert completed.json()["stop_reason"] == ""
+    assert len(completed.json()["messages"]) == 5
+    assert client.post(
+        f"/api/leads/{lead_id}/complete", json={"operation_id": "complete-cooperation"}
+    ).status_code == 200
+    assert client.post(
+        f"/api/leads/{lead_id}/complete", json={"operation_id": "complete-again"}
+    ).json()["status"] == "completed"
+    assert reply(client, lead_id, "More details", "reply-after-completion").status_code == 409
+    assert client.post(
+        f"/api/leads/{lead_id}/stop", json={"operation_id": "stop-after-completion"}
+    ).status_code == 409
+    assert send(client, lead_id, payload(client, lead_id, "send-after-completion")).status_code == 409
+    now[0] += 180
+    app.state.service.process_due()
+    assert len(mailer.sent) == 3
+
+    restarted = create_app(settings, EmailAgent(model), mailer, clock=lambda: now[0], scheduler_enabled=False)
+    with TestClient(restarted) as other:
+        assert detail(other, lead_id)["status"] == "completed"
+        assert len(detail(other, lead_id)["messages"]) == 5
+
+
+def test_complete_cancels_pending_followup_and_rejects_unsent_leads(env):
+    client, app, model, mailer, now, _ = env
+    lead_id = add(client)
+    assert client.post(
+        f"/api/leads/{lead_id}/complete", json={"operation_id": "complete-before-send"}
+    ).status_code == 409
+    start(client, lead_id)
+    result = client.post(
+        f"/api/leads/{lead_id}/complete", json={"operation_id": "complete-after-first"}
+    )
+    assert result.status_code == 200
+    assert result.json()["tasks"][1]["status"] == "cancelled"
+    now[0] += 120
+    app.state.service.process_due()
+    assert len(mailer.sent) == 1 and model.calls == ["first"]
+    assert start(client, lead_id, "restart-completed-lead").status_code == 409
+
+    stopped_id = add(client, email="stopped@example.com")
+    client.post(f"/api/leads/{stopped_id}/stop", json={"operation_id": "stop-other-lead"})
+    assert client.post(
+        f"/api/leads/{stopped_id}/complete", json={"operation_id": "complete-stopped-lead"}
+    ).status_code == 409
+
+
+def test_manually_stopped_conversation_can_be_marked_complete_but_refusal_cannot(env):
+    client, _, _, _, _, _ = env
+    lead_id = add(client)
+    start(client, lead_id)
+    client.post(f"/api/leads/{lead_id}/stop", json={"operation_id": "manual-stop-first"})
+    assert client.post(
+        f"/api/leads/{lead_id}/complete", json={"operation_id": "complete-manual-stop"}
+    ).json()["status"] == "completed"
+
+    refused_id = add(client, email="refused@example.com")
+    start(client, refused_id, "start-refused-lead")
+    reply(client, refused_id, "Please unsubscribe me", "refusal-reply")
+    assert client.post(
+        f"/api/leads/{refused_id}/complete", json={"operation_id": "complete-refusal"}
+    ).status_code == 409
+
+
 def test_attachment_claim_without_file_is_rejected_before_creating_task(env):
     client, _, _, mailer, _, _ = env
     lead_id = prepared(client)

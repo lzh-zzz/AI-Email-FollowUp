@@ -204,6 +204,10 @@ def create_app(
     def stop(lead_id: int, operation: Operation):
         return service.stop(lead_id, operation.operation_id)
 
+    @app.post("/api/leads/{lead_id}/complete")
+    def complete(lead_id: int, operation: Operation):
+        return service.complete(lead_id, operation.operation_id)
+
     @app.post("/api/leads/{lead_id}/reply", status_code=202)
     def reply(lead_id: int, data: ReplyInput, background: BackgroundTasks):
         result = service.record_reply(lead_id, data.operation_id, data.text)
