@@ -21,6 +21,7 @@ class Store:
                     intent TEXT, stop_reason TEXT NOT NULL DEFAULT '',
                     created_at REAL NOT NULL, updated_at REAL NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS id_counters (name TEXT PRIMARY KEY, value INTEGER NOT NULL);
                 CREATE TABLE IF NOT EXISTS conversations (
                     lead_id INTEGER PRIMARY KEY REFERENCES leads(id),
                     summary TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '',
@@ -116,6 +117,19 @@ class Store:
         with self.connect() as db:
             row = db.execute(sql, params).fetchone()
             return dict(row) if row else None
+
+    @staticmethod
+    def next_id(db, table):
+        if table not in {"leads", "email_tasks", "messages", "attachments"}:
+            raise ValueError("Unsupported identity table")
+        db.execute(
+            f"INSERT INTO id_counters(name,value) SELECT ?,COALESCE(MAX(id),0) FROM {table} WHERE 1 "
+            "ON CONFLICT(name) DO UPDATE SET value=MAX(value,excluded.value)",
+            (table,),
+        )
+        return db.execute(
+            "UPDATE id_counters SET value=value+1 WHERE name=? RETURNING value", (table,)
+        ).fetchone()[0]
 
     def all(self, sql, params=()):
         with self.connect() as db:

@@ -63,6 +63,13 @@
     </section>
   </main>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <dialog id="delete-dialog" aria-labelledby="delete-heading"><form id="delete-form">
+    <div class="dialog-heading"><h2 id="delete-heading">删除客户会话？</h2></div>
+    <p id="delete-customer" class="analysis-copy"></p>
+    <p class="notice warning">将永久删除该客户资料、会话、邮件记录、草稿、附件与官网分析，未执行任务也会移除。此操作无法恢复，已发送到邮箱的邮件无法撤回。</p>
+    <p id="delete-error" class="notice danger" role="alert" hidden></p>
+    <div class="dialog-footer"><button type="button" id="cancel-delete">取消</button><button type="submit" id="confirm-delete" class="danger-outline">确认删除</button></div>
+  </form></dialog>
   <dialog id="lead-dialog"><form id="lead-form">
     <div class="dialog-heading"><div><h2>录入潜在客户</h2><p class="muted small">提供背景，让邮件真正体现客户差异。</p></div><button type="button" id="close-dialog" class="icon-button" aria-label="关闭录入窗口">×</button></div>
     <label for="sample-select">填入虚构演示资料</label><select id="sample-select"><option value="">选择样例，或自行填写</option></select>

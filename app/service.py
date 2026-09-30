@@ -41,8 +41,8 @@ class Service:
             with self.store.connect(transaction=True) as db:
                 names = list(values)
                 cursor = db.execute(
-                    f"INSERT INTO leads ({','.join(names)},created_at,updated_at) VALUES ({','.join('?' for _ in names)},?,?)",
-                    [*values.values(), now, now],
+                    f"INSERT INTO leads (id,{','.join(names)},created_at,updated_at) VALUES (?,{','.join('?' for _ in names)},?,?)",
+                    [self.store.next_id(db, "leads"), *values.values(), now, now],
                 )
                 lead_id = cursor.lastrowid
                 db.execute("INSERT INTO conversations(lead_id) VALUES (?)", (lead_id,))
@@ -55,6 +55,41 @@ class Service:
         if not lead:
             raise RuleError("客户不存在。", 404)
         return lead
+
+    def delete_lead(self, lead_id):
+        with self.store.connect(transaction=True) as db:
+            if not db.execute("SELECT id FROM leads WHERE id=?", (lead_id,)).fetchone():
+                return {"deleted": False}
+            busy = db.execute(
+                "SELECT id FROM email_tasks WHERE lead_id=? AND status IN ('processing','sending')",
+                (lead_id,),
+            ).fetchone()
+            busy = (
+                busy
+                or db.execute(
+                    "SELECT id FROM messages WHERE lead_id=? AND status='analyzing'", (lead_id,)
+                ).fetchone()
+            )
+            busy = (
+                busy
+                or db.execute(
+                    "SELECT lead_id FROM website_research WHERE lead_id=? AND status='reading'", (lead_id,)
+                ).fetchone()
+            )
+            if busy:
+                raise RuleError("任务正在执行，请等待官网读取、AI 分析或 SMTP 发送结束后再删除会话。", 409)
+            # Preserve identifiers so a delayed request cannot act on a newly created record.
+            for table in ["leads", "email_tasks", "messages", "attachments"]:
+                self.store.next_id(db, table)
+            db.execute("DELETE FROM attachments WHERE lead_id=?", (lead_id,))
+            db.execute("DELETE FROM operations WHERE lead_id=?", (lead_id,))
+            db.execute("DELETE FROM website_research WHERE lead_id=?", (lead_id,))
+            db.execute("DELETE FROM conversations WHERE lead_id=?", (lead_id,))
+            db.execute("UPDATE email_tasks SET reply_id=NULL WHERE lead_id=?", (lead_id,))
+            db.execute("DELETE FROM messages WHERE lead_id=?", (lead_id,))
+            db.execute("DELETE FROM email_tasks WHERE lead_id=?", (lead_id,))
+            db.execute("DELETE FROM leads WHERE id=?", (lead_id,))
+        return {"deleted": True}
 
     def _operation(self, db, operation_id, lead_id, kind, payload=""):
         fingerprint = hashlib.sha256(payload.encode()).hexdigest()
@@ -101,8 +136,13 @@ class Service:
                 scheduled = False
             else:
                 cursor = db.execute(
-                    "INSERT INTO email_tasks(lead_id,kind,due_at,message_id) VALUES (?,'first',?,?)",
-                    (lead_id, self.clock(), f"<{uuid.uuid4().hex}@packpilot.demo>"),
+                    "INSERT INTO email_tasks(id,lead_id,kind,due_at,message_id) VALUES (?,?,'first',?,?)",
+                    (
+                        self.store.next_id(db, "email_tasks"),
+                        lead_id,
+                        self.clock(),
+                        f"<{uuid.uuid4().hex}@packpilot.demo>",
+                    ),
                 )
                 task_id, scheduled = cursor.lastrowid, True
             db.execute("UPDATE operations SET result_id=? WHERE operation_id=?", (task_id, operation_id))
@@ -307,8 +347,18 @@ class Service:
                 if content_type.split("/")[0] not in {"application", "text", "image", "audio", "video"}:
                     content_type = "application/octet-stream"
                 cursor = db.execute(
-                    "INSERT INTO attachments(lead_id,reply_id,filename,content_type,size,digest,content,created_at) VALUES (?,?,?,?,?,?,?,?)",
-                    (lead_id, reply_id, filename, content_type, len(content), digest, content, self.clock()),
+                    "INSERT INTO attachments(id,lead_id,reply_id,filename,content_type,size,digest,content,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (
+                        self.store.next_id(db, "attachments"),
+                        lead_id,
+                        reply_id,
+                        filename,
+                        content_type,
+                        len(content),
+                        digest,
+                        content,
+                        self.clock(),
+                    ),
                 )
                 attachment_id = cursor.lastrowid
             db.execute(
@@ -355,8 +405,9 @@ class Service:
                     (data.body, data.subject, lead_id),
                 )
                 cursor = db.execute(
-                    "INSERT INTO email_tasks(lead_id,kind,subject,body,due_at,message_id,reply_id) VALUES (?,'reply',?,?,?,?,?)",
+                    "INSERT INTO email_tasks(id,lead_id,kind,subject,body,due_at,message_id,reply_id) VALUES (?,?,'reply',?,?,?,?,?)",
                     (
+                        self.store.next_id(db, "email_tasks"),
                         lead_id,
                         data.subject,
                         data.body,
@@ -402,8 +453,8 @@ class Service:
             if not first:
                 raise RuleError("请先成功发送首封，再录入模拟回复。", 409)
             cursor = db.execute(
-                "INSERT INTO messages(lead_id,direction,source,body,created_at,status) VALUES (?,'inbound','manual_simulation',?,?,'analyzing')",
-                (lead_id, text, self.clock()),
+                "INSERT INTO messages(id,lead_id,direction,source,body,created_at,status) VALUES (?,?,'inbound','manual_simulation',?,?,'analyzing')",
+                (self.store.next_id(db, "messages"), lead_id, text, self.clock()),
             )
             reply_id = cursor.lastrowid
             db.execute(
@@ -541,7 +592,9 @@ class Service:
                 "UPDATE email_tasks SET status='processing',attempts=attempts+1,error='',error_phase='' WHERE id=?",
                 (task_id,),
             )
-        lead = self.lead(task["lead_id"])
+        lead = self.store.detail(task["lead_id"])
+        if not lead:
+            return
         try:
             self._require_sender()
             if not task["body"]:
@@ -573,7 +626,7 @@ class Service:
             return
         with self.store.connect(transaction=True) as db:
             row = db.execute("SELECT status FROM email_tasks WHERE id=?", (task_id,)).fetchone()
-            if row["status"] != "processing" or not self._task_allowed(db, task):
+            if not row or row["status"] != "processing" or not self._task_allowed(db, task):
                 db.execute(
                     "UPDATE email_tasks SET status='cancelled' WHERE id=? AND status='processing'", (task_id,)
                 )
@@ -605,8 +658,8 @@ class Service:
         with self.store.connect(transaction=True) as db:
             db.execute("UPDATE email_tasks SET status='sent',sent_at=?,error='' WHERE id=?", (now, task_id))
             db.execute(
-                "INSERT OR IGNORE INTO messages(lead_id,direction,source,body,created_at,task_id) VALUES (?,'outbound','qq_smtp',?,?,?)",
-                (lead["id"], task["body"], now, task_id),
+                "INSERT OR IGNORE INTO messages(id,lead_id,direction,source,body,created_at,task_id) VALUES (?,?,'outbound','qq_smtp',?,?,?)",
+                (self.store.next_id(db, "messages"), lead["id"], task["body"], now, task_id),
             )
             if not self._task_allowed(db, task):
                 return
@@ -615,8 +668,13 @@ class Service:
                     "UPDATE leads SET status='awaiting_reply',updated_at=? WHERE id=?", (now, lead["id"])
                 )
                 db.execute(
-                    "INSERT OR IGNORE INTO email_tasks(lead_id,kind,due_at,message_id) VALUES (?,'followup',?,?)",
-                    (lead["id"], now + self.settings.followup_delay, f"<{uuid.uuid4().hex}@packpilot.demo>"),
+                    "INSERT OR IGNORE INTO email_tasks(id,lead_id,kind,due_at,message_id) VALUES (?,?,'followup',?,?)",
+                    (
+                        self.store.next_id(db, "email_tasks"),
+                        lead["id"],
+                        now + self.settings.followup_delay,
+                        f"<{uuid.uuid4().hex}@packpilot.demo>",
+                    ),
                 )
             elif task["kind"] == "followup":
                 db.execute(

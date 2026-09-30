@@ -134,6 +134,10 @@ def create_app(
     def create_lead(data: LeadInput):
         return service.create_lead(data)
 
+    @app.delete("/api/leads/{lead_id}")
+    def delete_lead(lead_id: int):
+        return service.delete_lead(lead_id)
+
     @app.post("/api/leads/import")
     async def import_csv(file: UploadFile = File(...)):
         content = await file.read(256001)
