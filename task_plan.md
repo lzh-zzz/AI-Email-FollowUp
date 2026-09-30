@@ -7,8 +7,8 @@
 1. 配置检查、运行环境与项目骨架 — complete
 2. SQLite 业务状态、LangGraph 流程、模型与 SMTP 接入 — complete
 3. 客户录入 / CSV / 发信记录 / 模拟回复界面 — complete
-4. API 集成测试与真实服务联调 — in_progress
-5. README、演示步骤、启动验证与交付 — in_progress
+4. API 集成测试与真实服务联调 — complete（SMTP 已接受；实际收信待用户确认）
+5. README、演示步骤、启动验证与本地交付 — complete（GitHub 同步受网络阻塞）
 
 ## 约束
 
@@ -17,6 +17,7 @@
 - SMTP 不确定结果不得自动重发。
 - 不输出凭据；真实收件确认与 SMTP 接受分别报告。
 - GitHub Issue 发布不作为开发前置条件；当前没有 gh。
+- GitHub HTTPS 连接连续重置/失败，本地 Git 提交已完成，远程同步待网络恢复。
 
 ## 错误记录
 
