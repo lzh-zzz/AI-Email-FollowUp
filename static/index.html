@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PackPilot · 邮件开发工作台</title>
+  <link rel="stylesheet" href="/static/style.css"><script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="PackPilot 首页"><span class="mark" aria-hidden="true">P</span><strong>PackPilot</strong><span class="brand-caption">邮件开发工作台</span></a>
+    <div class="header-right"><span id="config-indicator" class="badge">正在检查配置</span><button id="reload-config" class="text-button">重新加载配置</button></div>
+  </header>
+  <main class="workspace">
+    <aside class="sidebar" aria-label="客户列表">
+      <div class="side-heading"><div><h1>潜在客户</h1><span id="lead-count" class="muted">正在加载</span></div><button id="new-lead" class="primary compact">＋ 录入</button></div>
+      <label class="search-label"><span class="sr-only">搜索客户</span><input id="search" type="search" placeholder="搜索姓名、公司或邮箱"></label>
+      <div class="import-row"><label class="file-button" for="csv-file">导入 CSV</label><input id="csv-file" type="file" accept=".csv,text/csv" class="sr-only"><a href="/static/sample-leads.csv" download>下载样例</a></div>
+      <div id="import-results" class="import-results" hidden></div>
+      <div id="lead-list" class="lead-list"><p class="empty-note">正在读取客户列表…</p></div>
+      <div class="side-footer"><strong>PackPilot · 虚构演示产品</strong><p>小批量定制包装 · 可回收材料 · 样品打样</p><p>仅向本人或公司提供的测试邮箱发信。</p></div>
+    </aside>
+    <section class="content" aria-label="客户详情">
+      <div id="config-warning" class="notice warning" hidden></div>
+      <div id="empty-state" class="welcome">
+        <span class="welcome-symbol" aria-hidden="true">↗</span><h2>从一位客户开始</h2>
+        <p>录入客户背景，查看 AI 的沟通切入点，发送一封个性化开发邮件。</p>
+        <ol class="workflow"><li>录入客户</li><li>AI 分析与发信</li><li>未回复自动跟进</li><li>回复判断或停止</li></ol>
+        <button id="empty-new" class="primary">录入第一位客户</button>
+        <p class="muted small">官网作为参考链接；回复在工作台中模拟录入。</p>
+      </div>
+      <div id="lead-detail" hidden>
+        <div class="detail-heading"><div><p class="muted small">客户会话</p><h2 id="detail-name"></h2><p id="detail-company" class="muted"></p></div><span id="detail-status" class="badge"></span></div>
+        <div class="actionbar"><button id="start-lead" class="primary">AI 分析并发送首封</button><button id="stop-lead" class="danger-outline">停止自动跟进</button><span id="action-description" class="muted small"></span></div>
+        <div id="stop-notice" class="notice" hidden></div>
+        <div class="detail-grid">
+          <section class="section"><h3>客户背景</h3><dl id="lead-facts" class="facts"></dl><p id="lead-background" class="background-copy"></p></section>
+          <section class="section"><h3>AI 画像与切入点</h3><div id="ai-profile"></div></section>
+        </div>
+        <section class="section"><div class="section-heading"><h3>邮件记录</h3><span class="muted small">“已发送”表示 SMTP 已接受，实际收信请查看测试邮箱</span></div><div id="email-tasks"></div></section>
+        <div class="reply-grid">
+          <section class="section"><div class="section-heading"><h3>模拟客户回复</h3><span class="badge neutral">手动录入</span></div>
+            <p class="muted small">保存回复后立即取消未发送跟进，再由 AI 分析意向。回复草稿仅展示。</p>
+            <form id="reply-form"><label for="reply-text" class="sr-only">客户回复内容</label><textarea id="reply-text" maxlength="5000" rows="5" placeholder="例如：Thanks for reaching out. Could you share sample options and pricing?" required></textarea>
+              <div class="reply-shortcuts"><button type="button" data-reply="high">感兴趣</button><button type="button" data-reply="medium">需要资料</button><button type="button" data-reply="low">暂不需要</button><button type="button" data-reply="refuse">明确拒绝</button><button type="button" data-reply="unsubscribe">退订</button></div>
+              <button id="save-reply" class="primary" type="submit">保存回复并分析</button><span id="reply-hint" class="muted small"></span>
+            </form>
+          </section>
+          <section class="section"><div class="section-heading"><h3>意向与下一步</h3><span id="intent-badge" class="badge neutral">待判断</span></div><div id="reply-analysis"></div></section>
+        </div>
+        <section class="section"><h3>会话时间线</h3><div id="conversation-timeline"></div></section>
+      </div>
+    </section>
+  </main>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <dialog id="lead-dialog"><form id="lead-form">
+    <div class="dialog-heading"><div><h2>录入潜在客户</h2><p class="muted small">提供背景，让邮件真正体现客户差异。</p></div><button type="button" id="close-dialog" class="icon-button" aria-label="关闭录入窗口">×</button></div>
+    <label for="sample-select">填入虚构演示资料</label><select id="sample-select"><option value="">选择样例，或自行填写</option></select>
+    <div class="form-grid">
+      <label>姓名<input name="name" required maxlength="100" autocomplete="off"></label>
+      <label>公司<input name="company" required maxlength="150" autocomplete="off"></label>
+      <label>职位<input name="title" required maxlength="150"></label>
+      <label>行业<input name="industry" required maxlength="100"></label>
+      <label>官网<input name="website" type="url" required maxlength="500" placeholder="https://company.example.com"></label>
+      <label>国家／地区<input name="country" required maxlength="100"></label>
+      <label class="full">客户邮箱（真实测试收件地址）<input name="email" type="email" required autocomplete="off"><span class="muted small">发送时必须与测试白名单中的地址一致。</span></label>
+      <label class="full">公司简介／业务背景<textarea name="background" required maxlength="3000" rows="3" placeholder="公司经营什么业务？客户负责什么？可能关注什么问题？"></textarea></label>
+    </div>
+    <div id="form-error" class="notice warning" hidden role="alert"></div><div class="dialog-footer"><button type="button" id="cancel-dialog">取消</button><button id="submit-lead" type="submit" class="primary">保存客户</button></div>
+  </form></dialog>
+</body>
+</html>

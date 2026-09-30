@@ -21,6 +21,9 @@ build/
 .output/
 coverage/
 .pytest_cache/
+.ruff_cache/
+data/
+artifacts/
 
 # Logs and operating system files
 *.log
