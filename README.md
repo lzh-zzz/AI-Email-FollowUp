@@ -4,14 +4,20 @@
 
 产品 **PackPilot** 和三组客户公司均为虚构演示资料。邮件确实发出，系统可向任意格式有效的客户邮箱发送。开发联调使用本人或公司提供的测试邮箱。
 
-交付采用本地运行：接收方从 GitHub 获取代码，在自己的电脑配置凭据并启动；无需部署线上网址。获取交付版本、验证步骤与验收边界见 [交付说明](docs/delivery.md)。收信人工确认及历史联调记录见 [验收记录](docs/verification.md)。
+交付采用本地运行：从 GitHub 获取代码，在自己的电脑配置凭据并启动。每位使用者的数据和配置独立保存在自己的电脑。
+
+## 获取项目
+
+推荐下载固定交付版本 **demo-local-2026-10-01-clean**：[浏览代码](https://github.com/lzh-zzz/AI-Email-FollowUp/tree/demo-local-2026-10-01-clean) · [下载 ZIP](https://github.com/lzh-zzz/AI-Email-FollowUp/archive/refs/tags/demo-local-2026-10-01-clean.zip)。下载 ZIP 后解压并进入项目目录，无需安装 Git。
 
 ## 快速启动
 
-准备条件：安装 [uv](https://docs.astral.sh/uv/getting-started/installation/)，准备百炼 API Key、QQ SMTP 授权码、获准测试收件地址。`gh` 不是启动依赖。
+准备条件：安装 [uv](https://docs.astral.sh/uv/getting-started/installation/)，准备百炼 API Key、QQ SMTP 授权码、获准测试收件地址。项目使用 Python 3.12，uv 可自动下载运行环境。
+
+使用 Git 获取固定版本时执行以下命令；已下载 ZIP 的使用者直接在解压后的项目目录复制配置文件。
 
 ```powershell
-git clone https://github.com/lzh-zzz/AI-Email-FollowUp.git
+git clone --branch demo-local-2026-10-01-clean --depth 1 https://github.com/lzh-zzz/AI-Email-FollowUp.git
 cd AI-Email-FollowUp
 Copy-Item .env.example .env
 ```
@@ -49,7 +55,13 @@ uv run --no-sync python run.py
 
 打开 **http://127.0.0.1:8000**。首次运行安装锁定依赖和所需 Python；之后通常数秒内启动。`Ctrl+C` 停止。凭据准备完成、运行环境和网络可用后可在五分钟内启动。无需前端编译或单独数据库服务。
 
-不使用 uv 时，可在 Python 3.12+ 虚拟环境运行 `python -m pip install -r requirements.txt`，再运行 `python run.py`。开发验收推荐 uv，以使用完整锁定依赖及测试工具。
+不使用 uv 时，可在 Python 3.12+ 虚拟环境运行 `python -m pip install -r requirements.txt`，再运行 `python run.py`。测试与开发推荐 uv，以使用完整锁定依赖及测试工具。
+
+### 启动问题排查
+
+- 配置未就绪：核对 `.env` 中的 Key、接口地域／业务空间、发件邮箱和授权码。测试账号不随仓库提供，必须填写自己的凭据。
+- uv 自动安装 Python 提示目标目录缺失：先安装正常的 Python 3.12，在项目目录执行 `uv sync --locked --python "C:\实际安装目录\python.exe"`，再运行启动脚本；将示例路径替换为实际路径。
+- 页面无法打开：确认启动终端仍在运行，地址为 `http://127.0.0.1:8000`；该地址仅用于运行项目的电脑。
 
 ## 使用方式
 
@@ -112,7 +124,7 @@ flowchart TD
 
 本地组件在同一进程。LangGraph 负责 AI 分支，数据库负责持久业务状态，调度器负责计时。模型不会自行循环调用发信工具。画像和首封合并一次调用，回复摘要、意向和草稿合并一次调用，跟进复用已保存画像以控制 Token。
 
-目录：`app/` 后端；`static/` 页面与 CSV；`tests/` 测试；`scripts/` 联调工具；`data/demo.db` 本地数据库；`docs/demo-guide.md` 演示讲稿。规格见 `SPEC.md`，术语见 `CONTEXT.md`。
+目录：`app/` 后端；`static/` 页面与 CSV；`tests/` 测试；`scripts/` 服务检查与 AI 验证工具；`docs/demo-guide.md` 演示讲稿。运行时在本地生成 `data/demo.db`，保存客户、会话、邮件任务和附件。
 
 ## 异常与防重复
 
@@ -149,7 +161,11 @@ uv run python -X utf8 scripts/verify_ai.py
 
 前者调用一次 AI 并验证 QQ SMTP 登录；后者生成三组客户邮件并分析五类回复。结果在被 Git 忽略的 `artifacts/`。真实邮件通过页面验收，并人工查看测试邮箱；“SMTP 已接受”不等于已到达收件箱。
 
-测试账号不随仓库提供，每位演示者填写自己的百炼 Key、QQ 授权码和测试邮箱。应用无需登录。验收记录见 `docs/verification.md`。
+测试账号不随仓库提供，每位演示者填写自己的百炼 Key、QQ 授权码和测试邮箱。应用无需登录。
+
+截至 2026-10-01，自动化测试 82 项通过，Ruff 和前端 JavaScript 语法检查通过。已验证真实百炼生成不同背景的个性化邮件、五类回复判断及 QQ SMTP 发送；测试邮箱持有人已确认实际收到首封和自动跟进，按其要求未记录收件日期和时间。
+
+独立下载的功能代码在运行环境准备好后，实际启动约 3.45 秒，重启后客户记录保留；依赖使用本机缓存，不代表新电脑首次下载耗时。附件邮件实际到达及附件可打开的独立人工确认仍待完成；倒计时内回复取消已有 API 测试，该分支的独立真实页面演示证据未单独补录。上述测试结果不代表原推荐测试方案已取得正式确认。
 
 ## 5–10 分钟演示
 
