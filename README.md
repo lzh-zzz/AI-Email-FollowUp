@@ -4,6 +4,8 @@
 
 产品 **PackPilot** 和三组客户公司均为虚构演示资料。邮件确实发出，系统可向任意格式有效的客户邮箱发送。开发联调使用本人或公司提供的测试邮箱。
 
+交付采用本地运行：接收方从 GitHub 获取代码，在自己的电脑配置凭据并启动；无需部署线上网址。获取交付版本、验证步骤与验收边界见 [交付说明](docs/delivery.md)。收信人工确认及历史联调记录见 [验收记录](docs/verification.md)。
+
 ## 快速启动
 
 准备条件：安装 [uv](https://docs.astral.sh/uv/getting-started/installation/)，准备百炼 API Key、QQ SMTP 授权码、获准测试收件地址。`gh` 不是启动依赖。
